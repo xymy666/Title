@@ -1,0 +1,9 @@
+name: Title
+version: 1.0
+main: org.xymy.title.Title
+api-version: 1.13 # 或者你的服务器版本
+softdepend: [GroupManager] # 软依赖，确保 GM 先加载
+commands:
+  title:
+    description: 称号查询指令
+    usage: /title get
