@@ -1,5 +1,11 @@
 package org.xymy.title;
 
+import net.kyori.adventure.text.Component;
+import net.kyori.adventure.text.TextComponent;
+import net.kyori.adventure.text.format.NamedTextColor;
+import net.kyori.adventure.text.format.TextColor;
+import net.kyori.adventure.text.format.TextDecoration;
+import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
 import org.bukkit.command.CommandExecutor;
@@ -43,7 +49,9 @@ public final class Title extends JavaPlugin {
                     if (prefix == null || prefix.isEmpty()) {
                         player.sendMessage(ChatColor.RED + "你当前没有任何称号。");
                     } else {
-                        player.sendMessage(ChatColor.AQUA + "你的当前称号是: " + ChatColor.RESET + ChatColor.translateAlternateColorCodes('&', prefix));
+                        String s = "&b你的当前称号是: &f";
+                        TextComponent text = Component.empty().append(formatText(s)).append(formatText(prefix));
+                        player.sendMessage(text);
                     }
                     return true;
 
@@ -175,5 +183,9 @@ public final class Title extends JavaPlugin {
             sb.append("&a").append(c);
         }
         return sb.toString();
+    }
+
+    private Component formatText(String s) {
+        return LegacyComponentSerializer.legacyAmpersand().deserialize(s);
     }
 }
