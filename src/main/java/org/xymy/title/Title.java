@@ -1,10 +1,6 @@
 package org.xymy.title;
 
 import net.kyori.adventure.text.Component;
-import net.kyori.adventure.text.TextComponent;
-import net.kyori.adventure.text.format.NamedTextColor;
-import net.kyori.adventure.text.format.TextColor;
-import net.kyori.adventure.text.format.TextDecoration;
 import net.kyori.adventure.text.serializer.legacy.LegacyComponentSerializer;
 import org.bukkit.ChatColor;
 import org.bukkit.command.Command;
@@ -13,23 +9,24 @@ import org.bukkit.command.CommandSender;
 import org.bukkit.entity.Player;
 import org.bukkit.plugin.java.JavaPlugin;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.regex.Pattern;
+public final class Title extends JavaPlugin implements CommandExecutor {
 
-public final class Title extends JavaPlugin {
-
-    private GMHook gmHook;
-    // 匹配 &0-9a-f 或 &#RRGGBB
-    private final Pattern colorPattern = Pattern.compile("(?i)&([0-9a-fk-or]|#[0-9a-f]{6})");
+    private LPHook lpHook;
 
     @Override
     public void onEnable() {
-        this.gmHook = new GMHook(this);
+        // 确保 LuckPerms 已安装
+        if (getServer().getPluginManager().getPlugin("LuckPerms") == null) {
+            getLogger().severe("未找到 LuckPerms，插件已禁用！");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+
+        this.lpHook = new LPHook();
         if (getCommand("title") != null) {
             getCommand("title").setExecutor(this);
         }
-        getLogger().info("Title 插件已启动！");
+        getLogger().info("Title 插件 (LuckPerms版) 已启动！");
     }
 
     @Override
@@ -40,59 +37,53 @@ public final class Title extends JavaPlugin {
         }
         Player player = (Player) sender;
 
-        // --- 处理 1 个参数的指令: get, num, clear ---
         if (args.length == 1) {
             String subCommand = args[0].toLowerCase();
             switch (subCommand) {
                 case "get":
-                    String prefix = gmHook.getPrefix(player);
+                    String prefix = lpHook.getPrefix(player);
                     if (prefix == null || prefix.isEmpty()) {
                         player.sendMessage(ChatColor.RED + "你当前没有任何称号。");
                     } else {
-                        String s = "&b你的当前称号是: &f";
-                        TextComponent text = Component.empty().append(formatText(s)).append(formatText(prefix));
-                        player.sendMessage(text);
+                        player.sendMessage(formatText("&b你的当前称号是: &f").append(formatText(prefix)));
                     }
                     return true;
 
                 case "num":
-                    int maxLen = getMaxAllowedLength(player);
+                    int maxLen = lpHook.getMaxAllowedLength(player);
                     player.sendMessage(ChatColor.GREEN + "你当前允许设置的最大称号长度为: " + ChatColor.YELLOW + maxLen);
                     return true;
 
                 case "clear":
-                    // 执行删除指令: manudelv <玩家> prefix
-                    String clearCmd = String.format("manudelv %s prefix", player.getName());
-                    getServer().dispatchCommand(getServer().getConsoleSender(), clearCmd);
+                    lpHook.clearPrefix(player);
                     player.sendMessage(ChatColor.YELLOW + "已成功清除你的称号。");
                     return true;
             }
         }
 
-        // --- 逻辑: /title set <称号> ---
+        // /title set <称号>
         if (args.length == 2 && args[0].equalsIgnoreCase("set")) {
             String titleInput = args[1];
             if (!titleInput.matches("[\\u4e00-\\u9fa5]+")) {
                 player.sendMessage(ChatColor.RED + "设置失败：称号必须全部为汉字！");
                 return true;
             }
-            if (!hasLengthPermission(player, titleInput.length())) {
+            if (titleInput.length() > lpHook.getMaxAllowedLength(player)) {
                 player.sendMessage(ChatColor.RED + "设置失败：字数上限不足。");
                 return true;
             }
 
             String formattedTitle = formatChineseTitle(titleInput);
-            updatePrefix(player, "&f『" + formattedTitle + "&f』");
+            lpHook.setPrefix(player, "&f『" + formattedTitle + "&f』");
             player.sendMessage(ChatColor.GREEN + "称号设置成功！");
             return true;
         }
 
-        // --- 逻辑: /title color <位置> <颜色代码> ---
+        // /title color <位置> <颜色代码>
         if (args.length == 3 && args[0].equalsIgnoreCase("color")) {
-            String prefix = gmHook.getPrefix(player);
-            // 严谨判断：必须包含『且前缀不为空
+            String prefix = lpHook.getPrefix(player);
             if (prefix == null || !prefix.contains("『")) {
-                player.sendMessage(ChatColor.RED + "你还没有设置称号，请先使用 /title set 设置。");
+                player.sendMessage(ChatColor.RED + "你还没有设置称号。");
                 return true;
             }
 
@@ -105,7 +96,6 @@ public final class Title extends JavaPlugin {
             }
 
             String colorCode = args[2];
-            // 增加对 &#RRGGBB 和 &c 的格式校验
             if (!colorCode.matches("(?i)&[0-9a-f]") && !colorCode.matches("(?i)&#[0-9a-f]{6}")) {
                 player.sendMessage(ChatColor.RED + "颜色格式错误！示例: &6 或 &#FF0000");
                 return true;
@@ -116,15 +106,13 @@ public final class Title extends JavaPlugin {
                     .replaceAll("(?i)&#[0-9a-f]{6}|&[0-9a-fA-Fk-orK-ORxX]", "");
 
             if (index < 0 || index >= pureTitle.length()) {
-                player.sendMessage(ChatColor.RED + "位置超出范围！当前称号长度: " + pureTitle.length());
+                player.sendMessage(ChatColor.RED + "位置超出范围！");
                 return true;
             }
 
             StringBuilder newFormatted = new StringBuilder();
             char[] chars = pureTitle.toCharArray();
-
-            // 提取颜色代码数组
-            String[] colors = getExistingColor(prefix);
+            String[] colors = getExistingColors(prefix, chars.length);
 
             for (int i = 0; i < chars.length; i++) {
                 if (i == index) {
@@ -134,7 +122,7 @@ public final class Title extends JavaPlugin {
                 }
             }
 
-            updatePrefix(player, "&f『" + newFormatted.toString() + "&f』");
+            lpHook.setPrefix(player, "&f『" + newFormatted.toString() + "&f』");
             player.sendMessage(ChatColor.GREEN + "颜色修改成功！");
             return true;
         }
@@ -149,32 +137,22 @@ public final class Title extends JavaPlugin {
         return true;
     }
 
-    private void updatePrefix(Player player, String finalPrefix) {
-        String cmd = String.format("manuaddv %s prefix %s", player.getName(), finalPrefix);
-        getServer().dispatchCommand(getServer().getConsoleSender(), cmd);
-    }
+    // 优化的颜色解析逻辑
+    private String[] getExistingColors(String prefix, int length) {
+        String[] colors = new String[length];
+        java.util.Arrays.fill(colors, "&a");
 
-    private String[] getExistingColor(String prefix) {
         String content = prefix.substring(prefix.indexOf("『") + 1, prefix.lastIndexOf("』"));
-        String[] colors = content.split("\\p{IsHan}");
-        for (int i = 0; i < colors.length; i++) {
-            String color = colors[i];
-            if (color == null || color.isEmpty()) {
-                colors[i] = "&f";
-            }
+        // 简单的正则表达式拆分，寻找颜色代码后紧跟的汉字
+        // 修正后的正则：添加了 A-F
+        java.util.regex.Matcher matcher = java.util.regex.Pattern.compile("(&[0-9a-fA-F]|&#[0-9a-fA-F]{6})([\\p{IsHan}])").matcher(content);
+
+        int i = 0;
+        while (matcher.find() && i < length) {
+            colors[i] = matcher.group(1);
+            i++;
         }
         return colors;
-    }
-
-    private int getMaxAllowedLength(Player player) {
-        for (int i = 100; i >= 1; i--) {
-            if (player.hasPermission("title.num." + i)) return i;
-        }
-        return 0;
-    }
-
-    private boolean hasLengthPermission(Player player, int length) {
-        return getMaxAllowedLength(player) >= length;
     }
 
     private String formatChineseTitle(String input) {
